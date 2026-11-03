@@ -1,0 +1,31 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Данные пользователя (не должны попасть в репозиторий)
+data/
+favorites.json
+history.json
+
+# Виртуальные окружения
+venv/
+env/
+
+# Сборки PyInstaller
+build/
+dist/
+*.spec
+
+# Системный мусор
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Архив
+Emulator/
+Dendy/
+Sega/
+Sony/
+data/
+__pycache__/
