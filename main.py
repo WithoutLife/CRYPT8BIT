@@ -6,10 +6,12 @@ import ctypes
 import logging
 import os
 import subprocess
+import webbrowser
+import json
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QLabel, QPushButton, QLineEdit, QFrame, QMenu, QButtonGroup, QScrollArea, QSizePolicy,
-    QGraphicsColorizeEffect, QGraphicsDropShadowEffect
+    QGraphicsColorizeEffect, QGraphicsDropShadowEffect, QMessageBox
 )
 from PySide6.QtCore import Qt, QTimer, QSize
 from PySide6.QtGui import QRegion, QPainterPath, QIcon, QPixmap, QColor, QPainter, QLinearGradient
@@ -19,7 +21,6 @@ from core.launcher import launch_game
 from core.history import load_history
 from ui.game_grid import GameGrid
 from ui.description_window import DescriptionWindow
-from ui.top_carousel import TopCarousel
 from ui.neon_icons import NeonIcon
 from core.favorites import toggle_favorite, load_favorites
 
@@ -335,23 +336,47 @@ class Toolbar(QFrame):
         layout.addWidget(self.search)
 
 # ----------------------------------------------------------------------
-# Footer
+# Footer (с ссылками)
 # ----------------------------------------------------------------------
 class Footer(QFrame):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setObjectName("footer")
         self.setFixedHeight(30)
+        
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(0)
-        self.left = QLabel("v3.0 · No_fate") 
+        layout.setContentsMargins(0, 0, 16, 0)
+        layout.setSpacing(15)
+        
+        self.left = QLabel("v3.8.0 · No_fate") 
         self.left.setObjectName("footerLabel")
         layout.addWidget(self.left)
+        
         layout.addStretch(1)
+        
         self.right = QLabel("Игр: 0 · ★: 0")
         self.right.setObjectName("footerLabel")
         layout.addWidget(self.right)
+        
+        self.link_roms = QPushButton("Скачать РОМы")
+        self.link_emus = QPushButton("Скачать эмуляторы")
+        
+        for btn in (self.link_roms, self.link_emus):
+            btn.setCursor(Qt.PointingHandCursor)
+            btn.setStyleSheet("""
+                QPushButton {
+                    background: transparent;
+                    border: none;
+                    color: #9d85c7;
+                    font-size: 9pt;
+                    text-decoration: underline;
+                }
+                QPushButton:hover {
+                    color: #d966ff;
+                }
+            """)
+            btn.hide()
+            layout.addWidget(btn)
 
 # ----------------------------------------------------------------------
 # Главное окно
@@ -360,8 +385,9 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("CRYPT8BIT")
-        self.setMinimumSize(1000, 700)
-        self.resize(1050, 800)
+        self.setMinimumSize(900, 600)
+        self.resize(1060, 800) 
+
         self.setWindowFlags(Qt.FramelessWindowHint | Qt.Window)
         self.setAttribute(Qt.WA_TranslucentBackground, False)
         self._corner_radius = 12
@@ -371,6 +397,9 @@ class MainWindow(QMainWindow):
         self.search_text = ""
         self.only_favorites = False
         self.is_recent_mode = False
+        self.links_data = self.load_links()
+        self.current_roms_url = ""
+        self.current_emu_url = ""
 
         central = QWidget()
         central.setObjectName("centralWidget")
@@ -400,10 +429,7 @@ class MainWindow(QMainWindow):
         right_layout.setContentsMargins(0, 0, 0, 0)
         right_layout.setSpacing(0)
 
-        self.carousel = TopCarousel()
-        self.carousel.item_double_clicked.connect(self.on_carousel_double_clicked)
-        right_layout.addWidget(self.carousel)
-
+        # УБРАЛИ КАРУСЕЛЬ - СРАЗУ СЕТКА
         self.game_grid = GameGrid()
         self.game_grid.card_clicked.connect(self.on_card_clicked)
         self.game_grid.card_double_clicked.connect(self.on_card_double_clicked)
@@ -429,8 +455,35 @@ class MainWindow(QMainWindow):
 
         self.toolbar.search.textChanged.connect(self.on_search)
 
-        QTimer.singleShot(10, self._apply_rounded_mask)
-        QTimer.singleShot(50, self.load_games)
+        self.footer.link_roms.clicked.connect(self.open_roms_link)
+        self.footer.link_emus.clicked.connect(self.open_emus_link)
+
+        frame = self.frameGeometry()
+        center_point = QApplication.primaryScreen().availableGeometry().center()
+        frame.moveCenter(center_point)
+        self.move(frame.topLeft())
+
+        QTimer.singleShot(50, self._apply_rounded_mask)
+        QTimer.singleShot(100, self.load_games)
+
+    def load_links(self):
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+        links_path = os.path.join(base_dir, "links.json")
+        if os.path.exists(links_path):
+            try:
+                with open(links_path, "r", encoding="utf-8") as f:
+                    return json.load(f)
+            except Exception as e:
+                logger.error(f"Ошибка чтения links.json: {e}")
+        return {}
+
+    def open_roms_link(self):
+        if self.current_roms_url:
+            webbrowser.open(self.current_roms_url)
+
+    def open_emus_link(self):
+        if self.current_emu_url:
+            webbrowser.open(self.current_emu_url)
 
     def paintEvent(self, event):
         painter = QPainter(self)
@@ -449,7 +502,6 @@ class MainWindow(QMainWindow):
         logger.info("Сканирование папок с играми...")
         self.all_games = scan_all_games()
         self.refresh_grid()
-        self.carousel.update_history(self.all_games)
 
     def refresh_grid(self):
         self.is_recent_mode = False
@@ -480,7 +532,16 @@ class MainWindow(QMainWindow):
         for key, btn in self.toolbar.console_buttons.items():
             btn.setChecked(key == console_key)
             
+        self.update_footer_links()
         self.refresh_grid()
+
+    def update_footer_links(self):
+        console_data = self.links_data.get(self.current_console, {})
+        self.current_roms_url = console_data.get("roms", "")
+        self.current_emu_url = console_data.get("emulator", "")
+        
+        self.footer.link_roms.setVisible(bool(self.current_roms_url))
+        self.footer.link_emus.setVisible(bool(self.current_emu_url))
 
     def on_search(self, text):
         self.search_text = text.strip()
@@ -499,6 +560,11 @@ class MainWindow(QMainWindow):
         self.refresh_grid()
 
     def on_nav_clicked(self, key):
+        if key == "settings":
+            self.on_nav_clicked("home")
+            self.open_game_creator()
+            return
+
         if key == "home":
             self._set_favorites_mode(False)
             self.toolbar.search.blockSignals(True)
@@ -508,6 +574,7 @@ class MainWindow(QMainWindow):
             self.current_console = "DENDY"
             for btn_key, btn in self.toolbar.console_buttons.items():
                 btn.setChecked(btn_key == "DENDY")
+            self.update_footer_links()
             self.refresh_grid()
 
         elif key == "favorite":
@@ -521,10 +588,9 @@ class MainWindow(QMainWindow):
             self.search_text = ""
             for btn in self.toolbar.console_buttons.values():
                 btn.setChecked(False)
+            self.footer.link_roms.hide()
+            self.footer.link_emus.hide()
             self._show_recent_games()
-
-        elif key == "settings":
-            self.open_game_creator()
 
     def _show_recent_games(self):
         self.is_recent_mode = True
@@ -544,26 +610,36 @@ class MainWindow(QMainWindow):
         self._update_fav_counter()
 
     def open_game_creator(self):
-        creator_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "tools", "game_creator.py")
-        if not os.path.isfile(creator_path):
-            logger.error(f"Не найден файл: {creator_path}")
-            return
-        try:
-            subprocess.Popen([sys.executable, creator_path])
-            logger.info("Конструктор игр запущен.")
-        except Exception as e:
-            logger.error(f"Не удалось запустить конструктор: {e}")
+        if getattr(sys, 'frozen', False):
+            base_dir = os.path.dirname(sys.executable)
+        else:
+            base_dir = os.path.dirname(os.path.abspath(__file__))
+            
+        creator_exe = os.path.join(base_dir, "GameCreator.exe")
+        
+        if not os.path.exists(creator_exe):
+            creator_exe = os.path.join(base_dir, "tools", "GameCreator.exe")
+
+        if os.path.exists(creator_exe):
+            try:
+                subprocess.Popen([creator_exe], cwd=os.path.dirname(creator_exe))
+                return
+            except Exception as e:
+                logger.error(f"Не удалось запустить конструктор: {e}")
+
+        if not getattr(sys, 'frozen', False):
+            creator_py = os.path.join(base_dir, "tools", "game_creator.py")
+            if os.path.exists(creator_py):
+                subprocess.Popen([sys.executable, creator_py])
+                return
+
+        QMessageBox.warning(self, "Ошибка", "Файл GameCreator.exe не найден!")
 
     def on_card_clicked(self, game):
         pass
 
     def on_card_double_clicked(self, game):
         launch_game(game, parent_window=self)
-        self.carousel.update_history(self.all_games)
-
-    def on_carousel_double_clicked(self, game):
-        launch_game(game, parent_window=self)
-        self.carousel.update_history(self.all_games)
 
     def on_card_context_menu(self, game, global_pos):
         menu = QMenu(self)
@@ -582,10 +658,8 @@ class MainWindow(QMainWindow):
             dlg.exec()
             if hasattr(dlg, "result_game") and dlg.result_game is not None:
                 launch_game(dlg.result_game, parent_window=self)
-                self.carousel.update_history(self.all_games)
         elif chosen == act_play:
             launch_game(game, parent_window=self)
-            self.carousel.update_history(self.all_games)
         elif chosen == act_fav:
             toggle_favorite(game.folder_name)
             self._update_fav_counter()

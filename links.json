@@ -1,0 +1,14 @@
+{
+    "DENDY": {
+        "roms": "https://disk.yandex.ru/d/твоя_ссылка_на_денди",
+        "emulator": "https://disk.yandex.ru/d/твоя_ссылка_на_эмулятор_денди"
+    },
+    "SEGA": {
+        "roms": "https://disk.yandex.ru/d/твоя_ссылка_на_сегу",
+        "emulator": "https://disk.yandex.ru/d/твоя_ссылка_на_эмулятор_сеги"
+    },
+    "SONY": {
+        "roms": "https://disk.yandex.ru/d/R1rkvePFjzEcDQ",
+        "emulator": "https://disk.yandex.ru/d/твоя_ссылка_на_эмулятор_сони"
+    }
+}

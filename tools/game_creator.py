@@ -1,8 +1,9 @@
 # tools/game_creator.py — Полноценный конструктор игр для CRYPT8BIT
-# Запуск: py -3.12 tools/game_creator.py
+# Запуск: py -3.12 tools/game_creator.py [путь_к_папке_игры]
 
 import sys
 import os
+import json
 import shutil
 from PySide6.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QHBoxLayout, QLabel,
@@ -10,6 +11,7 @@ from PySide6.QtWidgets import (
     QGroupBox, QFormLayout, QComboBox, QListWidget, QScrollArea
 )
 from PySide6.QtCore import Qt
+from PySide6.QtGui import QIcon
 
 # --- Шаблон HTML ---
 HTML_TEMPLATE = """<!DOCTYPE html>
@@ -76,102 +78,62 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 """
 
 class GameCreator(QWidget):
-    def __init__(self):
+    def __init__(self, target_dir=None):
         super().__init__()
-        self.setWindowTitle("CRYPT8BIT — Конструктор игр")
-        self.resize(900, 750) # Стартовый размер под ноутбуки
+        self.target_dir = target_dir
         
-        # НОВЫЙ СТИЛЬ (Synthwave)
+        self.setWindowTitle("CRYPT8BIT — Конструктор игр")
+        self.resize(900, 750)
+        self.setAcceptDrops(True) # Включаем поддержку Drag-and-Drop
+        
+        # --- УСТАНОВКА ИКОНКИ ---
+        if getattr(sys, 'frozen', False):
+            base_dir = getattr(sys, '_MEIPASS', os.path.dirname(sys.executable))
+        else:
+            base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            
+        icon_path = os.path.join(base_dir, "assets", "game_creator_icon.ico")
+        if os.path.exists(icon_path):
+            self.setWindowIcon(QIcon(icon_path))
+        else:
+            fallback_path = os.path.join(base_dir, "assets", "launcher_icon.ico")
+            if os.path.exists(fallback_path):
+                self.setWindowIcon(QIcon(fallback_path))
+
+        # --- СТИЛИ (Synthwave) ---
         self.setStyleSheet("""
-            QWidget { 
-                background-color: #0a0612; 
-                color: #f2ebff; 
-                font-family: 'Segoe UI'; 
-            }
-            QScrollArea {
-                border: none;
-                background: transparent;
-            }
-            QScrollBar:vertical {
-                background: transparent;
-                width: 8px;
-            }
-            QScrollBar::handle:vertical {
-                background: #3d2666;
-                border-radius: 4px;
-                min-height: 40px;
-            }
-            QScrollBar::handle:vertical:hover {
-                background: #d966ff;
-            }
+            QWidget { background-color: #0a0612; color: #f2ebff; font-family: 'Segoe UI'; }
+            QScrollArea { border: none; background: transparent; }
+            QScrollBar:vertical { background: transparent; width: 8px; }
+            QScrollBar::handle:vertical { background: #3d2666; border-radius: 4px; min-height: 40px; }
+            QScrollBar::handle:vertical:hover { background: #d966ff; }
             QLineEdit, QTextEdit, QComboBox, QListWidget { 
-                background-color: #1a1028; 
-                border: 1px solid #3d2666; 
-                border-radius: 6px; 
-                padding: 8px; 
-                color: #f2ebff; 
+                background-color: #1a1028; border: 1px solid #3d2666; border-radius: 6px; padding: 8px; color: #f2ebff; 
             }
-            QLineEdit:focus, QTextEdit:focus, QComboBox:focus { 
-                border: 1px solid #d966ff; 
-            }
-            QComboBox::drop-down {
-                border: none;
-            }
-            QComboBox QAbstractItemView {
-                background-color: #1a1028;
-                color: #f2ebff;
-                selection-background-color: #d966ff;
-            }
-            QPushButton { 
-                background-color: #d966ff; 
-                color: #0a0612; 
-                border: none; 
-                padding: 10px; 
-                border-radius: 6px; 
-                font-weight: bold; 
-                font-size: 11pt;
-            }
-            QPushButton:hover { 
-                background-color: #e699ff; 
-            }
-            QPushButton#secondary { 
-                background-color: #1a1028; 
-                color: #f2ebff; 
-                border: 1px solid #3d2666;
-            }
-            QPushButton#secondary:hover { 
-                background-color: #2a1b40; 
-                border: 1px solid #d966ff;
-            }
-            QGroupBox { 
-                border: 1px solid #3d2666; 
-                border-radius: 8px; 
-                margin-top: 15px; 
-                padding-top: 20px; 
-                font-weight: bold; 
-                color: #d966ff; 
-            }
-            QGroupBox::title { 
-                subcontrol-origin: margin; 
-                left: 15px; 
-                padding: 0 5px; 
-            }
-            QLabel {
-                color: #9d85c7;
-                font-weight: bold;
+            QLineEdit:focus, QTextEdit:focus, QComboBox:focus { border: 1px solid #d966ff; }
+            QComboBox::drop-down { border: none; }
+            QComboBox QAbstractItemView { background-color: #1a1028; color: #f2ebff; selection-background-color: #d966ff; }
+            QPushButton { background-color: #d966ff; color: #0a0612; border: none; padding: 10px; border-radius: 6px; font-weight: bold; font-size: 11pt; }
+            QPushButton:hover { background-color: #e699ff; }
+            QPushButton#secondary { background-color: #1a1028; color: #f2ebff; border: 1px solid #3d2666; }
+            QPushButton#secondary:hover { background-color: #2a1b40; border: 1px solid #d966ff; }
+            QGroupBox { border: 1px solid #3d2666; border-radius: 8px; margin-top: 15px; padding-top: 20px; font-weight: bold; color: #d966ff; }
+            QGroupBox::title { subcontrol-origin: margin; left: 15px; padding: 0 5px; }
+            QLabel { color: #9d85c7; font-weight: bold; }
+            /* Подсветка при перетаскивании */
+            QLineEdit[drag_active="true"], QListWidget[drag_active="true"] {
+                border: 2px solid #00e5ff;
+                background-color: #2a1b40;
             }
         """)
 
-        # Главный слой окна
         window_layout = QVBoxLayout(self)
         window_layout.setContentsMargins(0, 0, 0, 0)
 
-        # Создаем прокручиваемую область
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         window_layout.addWidget(scroll)
 
-        # Внутренний контент (все поля)
         content_widget = QWidget()
         scroll.setWidget(content_widget)
 
@@ -179,7 +141,7 @@ class GameCreator(QWidget):
         main_layout.setSpacing(10)
         main_layout.setContentsMargins(15, 15, 15, 15)
 
-        # --- Выбор консоли ---
+        # --- Консоль ---
         top_layout = QHBoxLayout()
         top_layout.addWidget(QLabel("Консоль:"))
         self.console_combo = QComboBox()
@@ -195,18 +157,23 @@ class GameCreator(QWidget):
         
         self.title_input = QLineEdit()
         self.title_input.setPlaceholderText("Название игры (папка создастся с этим именем) *")
+        
+        if self.target_dir:
+            self.title_input.setText(os.path.basename(self.target_dir))
+            self.title_input.setReadOnly(True)
+
         self.developer_input = QLineEdit()
-        self.developer_input.setPlaceholderText("Разработчик (например: Ocean Software)")
+        self.developer_input.setPlaceholderText("Разработчик")
         self.publisher_input = QLineEdit()
-        self.publisher_input.setPlaceholderText("Издатель (например: Flying Edge)")
+        self.publisher_input.setPlaceholderText("Издатель")
         self.release_input = QLineEdit()
-        self.release_input.setPlaceholderText("Дата выхода (например: 1993)")
+        self.release_input.setPlaceholderText("Дата выхода")
         self.players_input = QLineEdit()
-        self.players_input.setPlaceholderText("Кол-во игроков (например: 1-2 игрока)")
+        self.players_input.setPlaceholderText("Кол-во игроков")
         self.genre_input = QLineEdit()
-        self.genre_input.setPlaceholderText("Жанр (например: Экшен-платформер)")
+        self.genre_input.setPlaceholderText("Жанр")
         self.based_on_input = QLineEdit()
-        self.based_on_input.setPlaceholderText("Основано на (например: Фильме «Семейка Аддамс», 1991)")
+        self.based_on_input.setPlaceholderText("Основано на")
 
         info_layout.addRow("Название игры *:", self.title_input)
         info_layout.addRow("Разработчик:", self.developer_input)
@@ -217,16 +184,19 @@ class GameCreator(QWidget):
         info_layout.addRow("Основано на:", self.based_on_input)
         main_layout.addWidget(info_group)
 
-        # --- Файлы (РОМ, обложка, скриншоты) ---
-        files_group = QGroupBox("Файлы игры (Обязательно: РОМ и Обложка)")
+        # --- Файлы ---
+        files_group = QGroupBox("Файлы игры (Перетащите файлы сюда)")
         files_layout = QVBoxLayout(files_group)
 
-        # ROM
         rom_layout = QHBoxLayout()
         self.rom_path_input = QLineEdit()
-        self.rom_path_input.setPlaceholderText("Путь к архиву/РОМу... *")
+        self.rom_path_input.setPlaceholderText("Перетащите РОМ сюда... *")
         self.rom_path_input.setReadOnly(True)
-        btn_rom = QPushButton("Выбрать РОМ")
+        self.rom_path_input.setAcceptDrops(True)
+        self.rom_path_input.dragEnterEvent = self.on_drag_enter
+        self.rom_path_input.dropEvent = self.on_rom_drop
+        
+        btn_rom = QPushButton("Выбрать")
         btn_rom.setObjectName("secondary")
         btn_rom.clicked.connect(self.select_rom)
         rom_layout.addWidget(self.rom_path_input)
@@ -234,12 +204,15 @@ class GameCreator(QWidget):
         files_layout.addWidget(QLabel("РОМ-файл *:"))
         files_layout.addLayout(rom_layout)
 
-        # Обложка
         cover_layout = QHBoxLayout()
         self.cover_path_input = QLineEdit()
-        self.cover_path_input.setPlaceholderText("Выберите любой файл обложки (скрипт сам переименует)... *")
+        self.cover_path_input.setPlaceholderText("Перетащите обложку сюда... *")
         self.cover_path_input.setReadOnly(True)
-        btn_cover = QPushButton("Выбрать файл обложки")
+        self.cover_path_input.setAcceptDrops(True)
+        self.cover_path_input.dragEnterEvent = self.on_drag_enter
+        self.cover_path_input.dropEvent = self.on_cover_drop
+        
+        btn_cover = QPushButton("Выбрать")
         btn_cover.setObjectName("secondary")
         btn_cover.clicked.connect(self.select_cover)
         cover_layout.addWidget(self.cover_path_input)
@@ -247,14 +220,18 @@ class GameCreator(QWidget):
         files_layout.addWidget(QLabel("Файл обложки *:"))
         files_layout.addLayout(cover_layout)
 
-        # Скриншоты
         screens_layout = QVBoxLayout()
-        btn_screens = QPushButton("Добавить скриншоты (можно несколько)")
+        btn_screens = QPushButton("Добавить скриншоты")
         btn_screens.setObjectName("secondary")
         btn_screens.clicked.connect(self.select_screenshots)
+        
         self.screens_list = QListWidget()
         self.screens_list.setFixedHeight(80)
-        screens_layout.addWidget(QLabel("Скриншоты (будут пронумерованы 1, 2, 3...):"))
+        self.screens_list.setAcceptDrops(True)
+        self.screens_list.dragEnterEvent = self.on_drag_enter
+        self.screens_list.dropEvent = self.on_screens_drop
+        
+        screens_layout.addWidget(QLabel("Скриншоты (перетащите сюда):"))
         screens_layout.addWidget(btn_screens)
         screens_layout.addWidget(self.screens_list)
         files_layout.addLayout(screens_layout)
@@ -266,27 +243,22 @@ class GameCreator(QWidget):
         text_layout = QVBoxLayout(text_group)
         
         self.about_input = QTextEdit()
-        self.about_input.setPlaceholderText("Об игре: краткий сюжет, кто главный герой, что происходит...")
+        self.about_input.setPlaceholderText("Об игре...")
         self.about_input.setFixedHeight(60)
-        
         self.gameplay_input = QTextEdit()
-        self.gameplay_input.setPlaceholderText("Геймплей: как играется, какие механики, цели, особенности управления...")
+        self.gameplay_input.setPlaceholderText("Геймплей...")
         self.gameplay_input.setFixedHeight(60)
-        
         self.music_input = QTextEdit()
-        self.music_input.setPlaceholderText("Музыка и графика: визуальный стиль, композитор, атмосфера...")
+        self.music_input.setPlaceholderText("Музыка и графика...")
         self.music_input.setFixedHeight(60)
-        
         self.dev_input = QTextEdit()
-        self.dev_input.setPlaceholderText("Разработка: кто делал, на чем основано, интересные моменты создания...")
+        self.dev_input.setPlaceholderText("Разработка...")
         self.dev_input.setFixedHeight(60)
-        
         self.legacy_input = QTextEdit()
-        self.legacy_input.setPlaceholderText("Интересные факты: награды, культовый статус, отсылки, необычные детали...")
+        self.legacy_input.setPlaceholderText("Интересные факты...")
         self.legacy_input.setFixedHeight(60)
-        
         self.secrets_input = QTextEdit()
-        self.secrets_input.setPlaceholderText("Секреты и коды: читы, пароли, Game Genie, скрытые уровни...")
+        self.secrets_input.setPlaceholderText("Секреты и коды...")
         self.secrets_input.setFixedHeight(60)
 
         text_layout.addWidget(QLabel("Об игре:"))
@@ -304,10 +276,83 @@ class GameCreator(QWidget):
 
         main_layout.addWidget(text_group)
 
-        # --- Кнопка создания ---
-        self.btn_create = QPushButton("🚀 Создать игру (папка + файлы + HTML)")
+        # --- Кнопка ---
+        self.btn_create = QPushButton("🚀 Сохранить игру")
         self.btn_create.clicked.connect(self.generate_game)
         main_layout.addWidget(self.btn_create)
+
+        if self.target_dir:
+            self.load_existing_data()
+
+    # --- ОБРАБОТКА DRAG AND DROP ---
+    def on_drag_enter(self, event):
+        if event.mimeData().hasUrls():
+            event.acceptProposedAction()
+            # Подсвечиваем поле
+            if isinstance(self.sender(), QLineEdit):
+                self.sender().setProperty("drag_active", "true")
+                self.sender().style().polish(self.sender())
+            elif isinstance(self.sender(), QListWidget):
+                self.sender().setProperty("drag_active", "true")
+                self.sender().style().polish(self.sender())
+
+    def on_drag_leave(self, event):
+        if isinstance(self.sender(), QLineEdit):
+            self.sender().setProperty("drag_active", "false")
+            self.sender().style().polish(self.sender())
+        elif isinstance(self.sender(), QListWidget):
+            self.sender().setProperty("drag_active", "false")
+            self.sender().style().polish(self.sender())
+
+    def on_rom_drop(self, event):
+        if event.mimeData().hasUrls():
+            url = event.mimeData().urls()[0]
+            if url.isLocalFile():
+                self.rom_path_input.setText(url.toLocalFile())
+        self.rom_path_input.setProperty("drag_active", "false")
+        self.rom_path_input.style().polish(self.rom_path_input)
+
+    def on_cover_drop(self, event):
+        if event.mimeData().hasUrls():
+            url = event.mimeData().urls()[0]
+            if url.isLocalFile():
+                self.cover_path_input.setText(url.toLocalFile())
+        self.cover_path_input.setProperty("drag_active", "false")
+        self.cover_path_input.style().polish(self.cover_path_input)
+
+    def on_screens_drop(self, event):
+        if event.mimeData().hasUrls():
+            for url in event.mimeData().urls():
+                if url.isLocalFile():
+                    file_path = url.toLocalFile()
+                    # Добавляем только картинки
+                    if file_path.lower().endswith((".png", ".jpg", ".jpeg", ".gif", ".webp")):
+                        self.screens_list.addItem(file_path)
+        self.screens_list.setProperty("drag_active", "false")
+        self.screens_list.style().polish(self.screens_list)
+
+    # --- СТАРЫЕ МЕТОДЫ ---
+    def load_existing_data(self):
+        audit_path = os.path.join(self.target_dir, "audit.json")
+        if os.path.exists(audit_path):
+            with open(audit_path, "r", encoding="utf-8") as f:
+                audit = json.load(f)
+            
+            rom_dir = os.path.join(self.target_dir, "rom")
+            if os.path.isdir(rom_dir):
+                for f in os.listdir(rom_dir):
+                    self.rom_path_input.setText(os.path.join(rom_dir, f))
+                    break
+            
+            cover_path = os.path.join(self.target_dir, "images", "cartridge.png")
+            if os.path.exists(cover_path):
+                self.cover_path_input.setText(cover_path)
+
+            images_dir = os.path.join(self.target_dir, "images")
+            if os.path.isdir(images_dir):
+                for f in os.listdir(images_dir):
+                    if f[0].isdigit() and f.lower().endswith((".png", ".jpg", ".jpeg", ".gif", ".webp")):
+                        self.screens_list.addItem(os.path.join(images_dir, f))
 
     def select_rom(self):
         path, _ = QFileDialog.getOpenFileName(self, "Выбери РОМ", "", "Все файлы (*.*)")
@@ -320,54 +365,55 @@ class GameCreator(QWidget):
             self.cover_path_input.setText(path)
 
     def select_screenshots(self):
-        paths, _ = QFileDialog.getOpenFileNames(self, "Выбери скриншоты", "", "Изображения (*.png *.jpg *.jpeg)")
+        paths, _ = QFileDialog.getOpenFileNames(
+            self, "Выбери скриншоты", "", "Изображения (*.png *.jpg *.jpeg *.gif *.webp)"
+        )
         if paths:
             self.screens_list.addItems(paths)
 
     def generate_game(self):
-        # --- ПРОВЕРКА ОБЯЗАТЕЛЬНЫХ ПОЛЕЙ ---
         title = self.title_input.text().strip()
         rom_src = self.rom_path_input.text().strip()
         cover_src = self.cover_path_input.text().strip()
 
         if not title:
-            QMessageBox.warning(self, "Ошибка", "Введите название игры! Без него нельзя создать папку.")
+            QMessageBox.warning(self, "Ошибка", "Введите название игры!")
             return
         if not rom_src or not os.path.isfile(rom_src):
-            QMessageBox.warning(self, "Ошибка", "Выберите РОМ-файл! Без него игра не запустится.")
+            QMessageBox.warning(self, "Ошибка", "Выберите РОМ-файл!")
             return
         if not cover_src or not os.path.isfile(cover_src):
-            QMessageBox.warning(self, "Ошибка", "Выберите файл обложки! Без неё карточка в лаунчере будет пустой.")
+            QMessageBox.warning(self, "Ошибка", "Выберите файл обложки!")
             return
 
-        console = self.console_combo.currentText()
-        
-        # Где будет папка игры (рядом с main.py)
-        project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        console_dir = os.path.join(project_root, console)
-        game_dir = os.path.join(console_dir, title)
+        if self.target_dir:
+            game_dir = self.target_dir
+        else:
+            console = self.console_combo.currentText()
+            if getattr(sys, 'frozen', False):
+                project_root = os.path.dirname(os.path.dirname(sys.executable))
+            else:
+                project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            
+            console_dir = os.path.join(project_root, console)
+            game_dir = os.path.join(console_dir, title)
 
-        # Проверка на существование
-        if os.path.exists(game_dir):
+        if os.path.exists(game_dir) and not self.target_dir:
             reply = QMessageBox.question(self, "Папка существует", f"Папка '{title}' уже есть. Перезаписать?")
             if reply != QMessageBox.Yes:
                 return
 
         try:
-            # Создаём структуру папок
             images_dir = os.path.join(game_dir, "images")
             rom_dir = os.path.join(game_dir, "rom")
             os.makedirs(images_dir, exist_ok=True)
             os.makedirs(rom_dir, exist_ok=True)
 
-            # Копируем РОМ
             rom_filename = os.path.basename(rom_src)
             shutil.copy2(rom_src, os.path.join(rom_dir, rom_filename))
 
-            # Копируем обложку (всегда переименовываем в cartridge.png)
             shutil.copy2(cover_src, os.path.join(images_dir, "cartridge.png"))
 
-            # Копируем скриншоты (нумеруем 1, 2, 3...)
             for i in range(self.screens_list.count()):
                 screenshot_path = self.screens_list.item(i).text()
                 if os.path.isfile(screenshot_path):
@@ -375,7 +421,6 @@ class GameCreator(QWidget):
                     dst_path = os.path.join(images_dir, f"{i+1}{ext}")
                     shutil.copy2(screenshot_path, dst_path)
 
-            # Генерируем HTML
             data = {
                 "title": title,
                 "developer": self.developer_input.text().strip() or "Неизвестно",
@@ -396,12 +441,13 @@ class GameCreator(QWidget):
             with open(os.path.join(game_dir, "index.html"), "w", encoding="utf-8") as f:
                 f.write(html_content)
 
-            QMessageBox.information(self, "Готово", f"Игра создана в:\n{game_dir}\n\nПерезапусти лаунчер, чтобы увидеть её.")
+            QMessageBox.information(self, "Готово", f"Игра сохранена в:\n{game_dir}")
         except Exception as e:
-            QMessageBox.critical(self, "Ошибка", f"Не удалось создать игру:\n{e}")
+            QMessageBox.critical(self, "Ошибка", f"Не удалось сохранить игру:\n{e}")
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
-    window = GameCreator()
+    target = sys.argv[1] if len(sys.argv) > 1 else None
+    window = GameCreator(target)
     window.show()
     sys.exit(app.exec())
